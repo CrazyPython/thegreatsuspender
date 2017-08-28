@@ -1,16 +1,9 @@
-/*global chrome, gsUtils, createWindowHtml, createTabHtml */
-
-var sessionUtils = (function () {
-
+/*global chrome */
+var sessionUtils = (function () { // eslint-disable-line no-unused-vars
     'use strict';
-    var tgs = chrome.extension.getBackgroundPage().tgs,
-        gsUtils = chrome.extension.getBackgroundPage().gsUtils;
 
-
-    function hideModal() {
-        document.getElementById('sessionNameModal').style.display = 'none';
-        document.getElementsByClassName('mainContent')[0].className = 'mainContent';
-    }
+    var tgs = chrome.extension.getBackgroundPage().tgs;
+    var gsUtils = chrome.extension.getBackgroundPage().gsUtils;
 
     function reloadTabs(element, suspendMode) {
 
@@ -22,6 +15,10 @@ var sessionUtils = (function () {
 
             gsUtils.fetchSessionById(sessionId).then(function (session) {
 
+                if (!session || !session.windows) {
+                    return;
+                }
+
                 //if loading a specific window
                 if (windowId) {
                     windows.push(gsUtils.getWindowFromSession(windowId, session));
@@ -31,22 +28,27 @@ var sessionUtils = (function () {
                     windows = session.windows;
                 }
 
-                windows.forEach(function(window) {
+                windows.forEach(function (window) {
 
                     chrome.windows.create(function (newWindow) {
-                        window.tabs.forEach(function (curTab) {
-                            curUrl = curTab.url;
+                        chrome.tabs.query({ windowId: newWindow.id }, function (tabs) {
+                            var initialNewTab = tabs[0];
 
-                            if (suspendMode && curUrl.indexOf('suspended.html') < 0 && !chrome.extension.getBackgroundPage().tgs.isSpecialTab(curTab)) {
-                                curUrl = gsUtils.generateSuspendedUrl(curTab);
-                            } else if (!suspendMode && curUrl.indexOf('suspended.html') > 0) {
-                                curUrl = gsUtils.getSuspendedUrl(curTab.url);
+                            window.tabs.forEach(function (curTab) {
+                                curUrl = curTab.url;
+
+                                if (suspendMode && !tgs.isSuspended(curTab) && !tgs.isSpecialTab(curTab)) {
+                                    curUrl = gsUtils.generateSuspendedUrl(curTab.url, curTab.title);
+                                } else if (!suspendMode && tgs.isSuspended(curTab)) {
+                                    curUrl = gsUtils.getSuspendedUrl(curTab.url);
+                                }
+                                chrome.tabs.create({windowId: newWindow.id, url: curUrl, pinned: curTab.pinned, active: false});
+                            });
+
+                            //remove initial new tab created with the window
+                            if (initialNewTab) {
+                                chrome.tabs.remove(initialNewTab.id);
                             }
-                            chrome.tabs.create({windowId: newWindow.id, url: curUrl, pinned: curTab.pinned, active: false});
-                        });
-
-                        chrome.tabs.query({windowId: newWindow.id, index: 0}, function (tabs) {
-                            chrome.tabs.remove(tabs[0].id);
                         });
                     });
                 });
@@ -59,38 +61,35 @@ var sessionUtils = (function () {
 
         gsUtils.fetchSessionById(sessionId).then(function (session) {
 
-            document.getElementsByClassName('mainContent')[0].className += ' blocked';
-            document.getElementById('sessionNameModal').style.display = 'block';
-            document.getElementById('sessionNameText').focus();
-
-            document.getElementById('sessionNameCancel').onclick = hideModal;
-            document.getElementById('sessionNameSubmit').onclick = function () {
-                var text = document.getElementById('sessionNameText').value;
-                if (text) {
-                    session.name = text;
-                    gsUtils.addToSavedSessions(session);
-                    window.location.reload();
-                }
-            };
+            var sessionName = window.prompt(chrome.i18n.getMessage('js_sessionUtils_enter_name_for_session'));
+            if (sessionName) {
+                session.name = sessionName;
+                gsUtils.addToSavedSessions(session);
+                window.location.reload();
+            }
         });
     }
 
     function deleteSession(sessionId) {
 
-        gsUtils.removeSessionFromHistory(sessionId, function() {
+        gsUtils.removeSessionFromHistory(sessionId, function () {
             window.location.reload();
         });
     }
 
     function exportSession(sessionId) {
-        var csvContent = "data:text/csv;charset=utf-8,",
+        var csvContent = 'data:text/csv;charset=utf-8,',
             dataString = '';
 
         gsUtils.fetchSessionById(sessionId).then(function (session) {
 
+            if (!session || !session.windows) {
+                return;
+            }
+
             session.windows.forEach(function (curWindow, index) {
                 curWindow.tabs.forEach(function (curTab, tabIndex) {
-                    if (curTab.url.indexOf("suspended.html") > 0) {
+                    if (tgs.isSuspended(curTab)) {
                         dataString += gsUtils.getSuspendedUrl(curTab.url) + '\n';
                     } else {
                         dataString += curTab.url + '\n';
@@ -100,9 +99,9 @@ var sessionUtils = (function () {
             csvContent += dataString;
 
             var encodedUri = encodeURI(csvContent);
-            var link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", "session.txt");
+            var link = document.createElement('a');
+            link.setAttribute('href', encodedUri);
+            link.setAttribute('download', 'session.txt');
             link.click();
         });
     }
@@ -117,7 +116,7 @@ var sessionUtils = (function () {
                 sessionEl,
                 newSessionEl;
 
-            gsUtils.removeTabFromSessionHistory(sessionId, windowId, tabId, function(session) {
+            gsUtils.removeTabFromSessionHistory(sessionId, windowId, tabId, function (session) {
                 //if we have a valid session returned
                 if (session) {
                     sessionEl = element.parentElement.parentElement;
@@ -148,7 +147,7 @@ var sessionUtils = (function () {
 
             gsUtils.fetchSessionById(sessionId).then(function (session) {
 
-                if (!session) {
+                if (!session || !session.windows) {
                     return;
                 }
 
@@ -168,9 +167,9 @@ var sessionUtils = (function () {
         };
     }
 
-
     function createSessionHtml(session) {
-        var savedSession = session.name ? true : false,
+        session.windows = session.windows || [];
+        var savedSession = (session.name && true) || false,
             sessionContainer,
             sessionTitle,
             sessionSave,
@@ -181,13 +180,16 @@ var sessionUtils = (function () {
             windowReload,
             titleText,
             winCnt = session.windows.length,
-            tabCnt = session.windows.reduce(function(a, b) {return a + b.tabs.length;}, 0);
+            tabCnt = session.windows.reduce(function (a, b) { return a + b.tabs.length; }, 0);
 
         if (savedSession) {
-            titleText = session.name + ' (' + winCnt + pluralise(' window', winCnt) + ', ' + tabCnt + pluralise(' tab', tabCnt) + ')';
+            titleText = session.name;
         } else {
-            titleText = winCnt + pluralise(' window', winCnt) + ', ' + tabCnt + pluralise(' tab', tabCnt) + ': ' + gsUtils.getHumanDate(session.date);
+            titleText = gsUtils.getHumanDate(session.date);
         }
+        titleText += '&nbsp;&nbsp;<small>(' +
+            winCnt + pluralise(' ' + chrome.i18n.getMessage('js_sessionUtils_window'), winCnt) + ', ' +
+            tabCnt + pluralise(' ' + chrome.i18n.getMessage('js_sessionUtils_tab'), tabCnt) + ')</small>';
 
         sessionDiv = createEl('div', {
             'class': 'sessionDiv',
@@ -196,14 +198,15 @@ var sessionUtils = (function () {
 
         sessionTitle = createEl('span', {
             'class': 'sessionLink'
-        }, titleText);
+        });
+        sessionTitle.innerHTML = titleText;
         sessionTitle.onclick = toggleSession(sessionDiv);
 
         if (!savedSession) {
             sessionSave = createEl('a', {
                 'class': 'groupLink',
                 'href': '#'
-            }, 'save');
+            }, chrome.i18n.getMessage('js_sessionUtils_save'));
             sessionSave.onclick = function () {
                 saveSession(session.sessionId);
             };
@@ -213,7 +216,7 @@ var sessionUtils = (function () {
             sessionDelete = createEl('a', {
                 'class': 'groupLink',
                 'href': '#'
-            }, 'delete');
+            }, chrome.i18n.getMessage('js_sessionUtils_delete'));
             sessionDelete.onclick = function () {
                 deleteSession(session.sessionId);
             };
@@ -222,7 +225,7 @@ var sessionUtils = (function () {
         sessionExport = createEl('a', {
             'class': 'groupLink',
             'href': '#'
-        }, 'export');
+        }, chrome.i18n.getMessage('js_sessionUtils_export'));
         sessionExport.onclick = function () {
             exportSession(session.sessionId);
         };
@@ -230,13 +233,13 @@ var sessionUtils = (function () {
         windowResuspend = createEl('a', {
             'class': 'groupLink',
             'href': '#'
-        }, 'resuspend');
+        }, chrome.i18n.getMessage('js_sessionUtils_resuspend'));
         windowResuspend.onclick = reloadTabs(sessionDiv, true);
 
         windowReload = createEl('a', {
             'class': 'groupLink',
             'href': '#'
-        }, 'reload');
+        }, chrome.i18n.getMessage('js_sessionUtils_reload'));
         windowReload.onclick = reloadTabs(sessionDiv, false);
 
         sessionContainer = createEl('div');
@@ -269,13 +272,13 @@ var sessionUtils = (function () {
         groupUnsuspendCurrent = createEl('a', {
             'class': 'groupLink',
             'href': '#'
-        }, 'resuspend');
+        }, chrome.i18n.getMessage('js_sessionUtils_resuspend'));
         groupUnsuspendCurrent.onclick = reloadTabs(groupHeading, true);
 
         groupUnsuspendNew = createEl('a', {
             'class': 'groupLink',
             'href': '#'
-        }, 'reload');
+        }, chrome.i18n.getMessage('js_sessionUtils_reload'));
         groupUnsuspendNew.onclick = reloadTabs(groupHeading, false);
 
         groupHeading.appendChild(windowHeading);
@@ -300,8 +303,14 @@ var sessionUtils = (function () {
             favicon = tabProperties.favicon;
         } else if (tabProperties.favIconUrl && tabProperties.favIconUrl.indexOf('chrome://theme') < 0) {
             favicon = tabProperties.favIconUrl;
-        } else {
-            favicon = 'chrome://favicon/' + tabProperties.url;
+        }
+        if (!favicon || favicon === chrome.extension.getURL('img/icon16.png')) {
+            favicon = 'chrome://favicon/size/16@2x/';
+            if (tgs.isSuspended(tabProperties)) {
+                favicon += gsUtils.getSuspendedUrl(tabProperties.url);
+            } else {
+                favicon += tabProperties.url;
+            }
         }
 
         if (tabProperties.sessionId) {
@@ -363,13 +372,11 @@ var sessionUtils = (function () {
     }
 
     function pluralise(text, count) {
-        return text + (count > 1 ? 's' : '');
+        return text + (count > 1 ? chrome.i18n.getMessage('js_sessionUtils_plural') : '');
     }
 
     return {
         createSessionHtml: createSessionHtml,
-        createTabHtml: createTabHtml,
-        hideModal: hideModal
+        createTabHtml: createTabHtml
     };
-
 }());

@@ -1,9 +1,9 @@
 <!doctype html>
 <html>
 <head>
-	<title id='gsTitle'>The Great Suspender - Recovery</title>
 	<link type="text/css" href="css/style.css" rel="stylesheet">
-
+	<script type="text/javascript" src="js/success.js"></script>
+	<title id='gsTitle' data-i18n="__MSG_ext_extension_name__ - __MSG_html_success_title__"></title>
 </head>
 <body id="body">
 
@@ -13,14 +13,16 @@
 		<img src="img/dude_large.png" />
 	</div>
 
-	<h1>Great success!</h1>
+	<h1 data-i18n="__MSG_html_success_great_success__"></h1>
     <br />
-	<p>All your tabs have been restored.</p>
-    <p>For advanced session management, visit the <a href='/history.html'>session management</a> page</p>
+	<p data-i18n="__MSG_html_success_all_tabs_restored__"></p>
+	<p>
+		<span data-i18n="__MSG_html_success_goto_advanced_prefix__ "></span>
+		<a href="/history.html" data-i18n="__MSG_html_success_goto_advanced_link_name__"></a>
+		<span data-i18n=" __MSG_html_success_goto_advanced_suffix__"></span>
+	</p>
 
     <hr class="splashRule" />
 </div>
-
-
 </body>
 </html>

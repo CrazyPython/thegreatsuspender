@@ -1,8 +1,7 @@
-/*global chrome, gsUtils, render, createWindowHtml, createTabHtml */
-
+/*global chrome, sessionUtils */
 (function () {
-
     'use strict';
+
     var gsUtils = chrome.extension.getBackgroundPage().gsUtils;
 
     function render() {
@@ -13,7 +12,6 @@
             clearHistoryEl = document.getElementById('clearHistory'),
             firstSession = true;
 
-        sessionUtils.hideModal();
         currentDiv.innerHTML = '';
         sessionsDiv.innerHTML = '';
         historyDiv.innerHTML = '';
@@ -40,10 +38,17 @@
             gsUtils.clearGsSessions();
             render();
         };
+
+        //hide incompatible sidebar items if in incognito mode
+        if (chrome.extension.inIncognitoContext) {
+            Array.prototype.forEach.call(document.getElementsByClassName('noIncognito'), function (el) {
+                el.style.display = 'none';
+            });
+        }
+
     }
 
-    window.onload = function () {
+    gsUtils.documentReadyAndLocalisedAsPromsied(document).then(function () {
         render();
-    };
-
+    });
 }());
